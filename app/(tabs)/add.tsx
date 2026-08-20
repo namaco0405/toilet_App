@@ -16,13 +16,23 @@ import { useAuth } from "@clerk/clerk-expo";
 import { useMutation } from "convex/react";
 import * as ImagePicker from "expo-image-picker";
 import { usePostHog } from "posthog-react-native";
+import { useRouter } from "expo-router";
 import { api } from "../../convex/_generated/api";
-import { ToiletType } from "../../types";
-import { TOILET_TYPES, TOILET_TYPE_LABELS, TOILET_TYPE_ICONS } from "../../constants/ToiletTypes";
+import { Id } from "../../convex/_generated/dataModel";
 import { useLocation } from "../../hooks/useLocation";
 import Colors from "../../constants/Colors";
-import { useRouter } from "expo-router";
-import { Id } from "../../convex/_generated/dataModel";
+import { FACILITY_KEYS, FACILITY_LABELS, FACILITY_ICONS } from "../../constants/Facilities";
+import { HoursType, FeeType, ToiletFacilities } from "../../types";
+
+const EMPTY_FACILITIES: ToiletFacilities = {
+  multipurpose: false,
+  diaperChanging: false,
+  washlet: false,
+  ostomate: false,
+  separateByGender: false,
+  babyChair: false,
+  kidsToilet: false,
+};
 
 export default function AddScreen() {
   const { userId } = useAuth();
@@ -30,10 +40,15 @@ export default function AddScreen() {
   const router = useRouter();
   const mapRef = useRef<MapView>(null);
 
-  const { region, location, getCurrentLocation } = useLocation();
+  const { region, getCurrentLocation } = useLocation();
 
   const [name, setName] = useState("");
-  const [type, setType] = useState<ToiletType>("western");
+  const [hoursType, setHoursType] = useState<HoursType>("unknown");
+  const [customHours, setCustomHours] = useState("");
+  const [fee, setFee] = useState<FeeType>("unknown");
+  const [facilities, setFacilities] = useState<ToiletFacilities>(EMPTY_FACILITIES);
+  const [insideTicketGate, setInsideTicketGate] = useState(false);
+  const [hasParking, setHasParking] = useState(false);
   const [notes, setNotes] = useState("");
   const [selectedLocation, setSelectedLocation] = useState<{
     latitude: number;
@@ -44,6 +59,10 @@ export default function AddScreen() {
 
   const createToilet = useMutation(api.toilets.createToilet);
   const generateUploadUrl = useMutation(api.storage.generateUploadUrl);
+
+  const toggleFacility = (key: keyof ToiletFacilities) => {
+    setFacilities((f) => ({ ...f, [key]: !f[key] }));
+  };
 
   const handleMapPress = (e: any) => {
     const { coordinate } = e.nativeEvent;
@@ -124,10 +143,6 @@ export default function AddScreen() {
 
   const handleSubmit = async () => {
     if (!userId) return;
-    if (!name.trim()) {
-      Alert.alert("エラー", "トイレの名前を入力してください");
-      return;
-    }
     if (!selectedLocation) {
       Alert.alert("エラー", "地図をタップして場所を選んでください");
       return;
@@ -142,18 +157,23 @@ export default function AddScreen() {
 
       await createToilet({
         clerkId: userId,
-        name: name.trim(),
-        type,
-        notes: notes.trim() || undefined,
+        name: name.trim() || "名称未設定のトイレ",
         latitude: selectedLocation.latitude,
         longitude: selectedLocation.longitude,
+        hoursType,
+        customHours: hoursType === "custom" ? customHours.trim() || undefined : undefined,
+        fee,
+        facilities,
+        insideTicketGate,
+        hasParking,
+        notes: notes.trim() || undefined,
         imageStorageId,
       });
 
       posthog?.capture("toilet_registered", {
-        type,
+        fee,
+        hours_type: hoursType,
         has_image: !!imageStorageId,
-        has_notes: !!notes.trim(),
       });
 
       Alert.alert("登録完了", "トイレを登録しました！", [
@@ -162,6 +182,12 @@ export default function AddScreen() {
           onPress: () => {
             setName("");
             setNotes("");
+            setHoursType("unknown");
+            setCustomHours("");
+            setFee("unknown");
+            setFacilities(EMPTY_FACILITIES);
+            setInsideTicketGate(false);
+            setHasParking(false);
             setSelectedLocation(null);
             setImageUri(null);
             router.replace("/(tabs)");
@@ -216,53 +242,129 @@ export default function AddScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Name */}
+      {/* Basic info */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>🚽 トイレ情報</Text>
         <View style={styles.inputGroup}>
-          <Text style={styles.label}>名前 *</Text>
+          <Text style={styles.label}>トイレ名（任意）</Text>
           <TextInput
             style={styles.input}
             value={name}
             onChangeText={setName}
-            placeholder="例：渋谷駅公衆トイレ"
+            placeholder="例：〇〇カフェのトイレ"
             placeholderTextColor={Colors.textLight}
             maxLength={50}
           />
         </View>
 
-        {/* Type picker */}
         <View style={styles.inputGroup}>
-          <Text style={styles.label}>種類 *</Text>
-          <View style={styles.typeGrid}>
-            {TOILET_TYPES.map((t) => (
+          <Text style={styles.label}>営業時間</Text>
+          <View style={styles.chipRow}>
+            {(
+              [
+                ["24h", "24時間利用可"],
+                ["custom", "営業時間あり"],
+                ["unknown", "不明"],
+              ] as [HoursType, string][]
+            ).map(([value, label]) => (
               <TouchableOpacity
-                key={t}
-                style={[styles.typeBtn, type === t && styles.typeBtnActive]}
-                onPress={() => setType(t)}
+                key={value}
+                style={[styles.chip, hoursType === value && styles.chipActive]}
+                onPress={() => setHoursType(value)}
               >
-                <Text style={styles.typeIcon}>{TOILET_TYPE_ICONS[t]}</Text>
-                <Text
-                  style={[
-                    styles.typeLabel,
-                    type === t && styles.typeLabelActive,
-                  ]}
-                >
-                  {TOILET_TYPE_LABELS[t]}
+                <Text style={[styles.chipText, hoursType === value && styles.chipTextActive]}>
+                  {label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          {hoursType === "custom" && (
+            <TextInput
+              style={[styles.input, { marginTop: 8 }]}
+              value={customHours}
+              onChangeText={setCustomHours}
+              placeholder="例：9:00〜21:00"
+              placeholderTextColor={Colors.textLight}
+              maxLength={40}
+            />
+          )}
+        </View>
+
+        <View style={styles.inputGroup}>
+          <Text style={styles.label}>利用料金</Text>
+          <View style={styles.chipRow}>
+            {(
+              [
+                ["free", "無料"],
+                ["paid", "有料"],
+                ["unknown", "不明"],
+              ] as [FeeType, string][]
+            ).map(([value, label]) => (
+              <TouchableOpacity
+                key={value}
+                style={[styles.chip, fee === value && styles.chipActive]}
+                onPress={() => setFee(value)}
+              >
+                <Text style={[styles.chipText, fee === value && styles.chipTextActive]}>
+                  {label}
                 </Text>
               </TouchableOpacity>
             ))}
           </View>
         </View>
 
-        {/* Notes */}
+        <View style={styles.inputGroup}>
+          <Text style={styles.label}>設備（複数選択可）</Text>
+          <View style={styles.facilityGrid}>
+            {FACILITY_KEYS.map((key) => (
+              <TouchableOpacity
+                key={key}
+                style={[styles.facilityBtn, facilities[key] && styles.facilityBtnActive]}
+                onPress={() => toggleFacility(key)}
+              >
+                <Text style={styles.facilityIcon}>{FACILITY_ICONS[key]}</Text>
+                <Text
+                  style={[
+                    styles.facilityLabel,
+                    facilities[key] && styles.facilityLabelActive,
+                  ]}
+                >
+                  {FACILITY_LABELS[key]}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
+        <View style={styles.inputGroup}>
+          <Text style={styles.label}>その他</Text>
+          <View style={styles.chipRow}>
+            <TouchableOpacity
+              style={[styles.chip, insideTicketGate && styles.chipActive]}
+              onPress={() => setInsideTicketGate((v) => !v)}
+            >
+              <Text style={[styles.chipText, insideTicketGate && styles.chipTextActive]}>
+                改札内
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.chip, hasParking && styles.chipActive]}
+              onPress={() => setHasParking((v) => !v)}
+            >
+              <Text style={[styles.chipText, hasParking && styles.chipTextActive]}>
+                駐車場あり
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
         <View style={styles.inputGroup}>
           <Text style={styles.label}>メモ（任意）</Text>
           <TextInput
             style={[styles.input, styles.textArea]}
             value={notes}
             onChangeText={setNotes}
-            placeholder="清潔さ、設備など自由にメモ..."
+            placeholder="清潔さ、入口の目印など自由にメモ..."
             placeholderTextColor={Colors.textLight}
             multiline
             numberOfLines={3}
@@ -312,7 +414,7 @@ export default function AddScreen() {
         {loading ? (
           <ActivityIndicator color="#fff" />
         ) : (
-          <Text style={styles.submitBtnText}>🚽 トイレを登録する</Text>
+          <Text style={styles.submitBtnText}>登録する</Text>
         )}
       </TouchableOpacity>
     </ScrollView>
@@ -400,35 +502,60 @@ const styles = StyleSheet.create({
     height: 80,
     textAlignVertical: "top",
   },
-  typeGrid: {
+  chipRow: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 8,
   },
-  typeBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
+  chip: {
     paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingVertical: 9,
     borderRadius: 12,
     borderWidth: 1.5,
     borderColor: Colors.border,
     backgroundColor: Colors.background,
   },
-  typeBtnActive: {
+  chipActive: {
     borderColor: Colors.primary,
     backgroundColor: Colors.primaryBg,
   },
-  typeIcon: {
-    fontSize: 16,
+  chipText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: Colors.textSecondary,
   },
-  typeLabel: {
+  chipTextActive: {
+    color: Colors.primary,
+  },
+  facilityGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  facilityBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: Colors.border,
+    backgroundColor: Colors.background,
+  },
+  facilityBtnActive: {
+    borderColor: Colors.primary,
+    backgroundColor: Colors.primaryBg,
+  },
+  facilityIcon: {
     fontSize: 14,
+  },
+  facilityLabel: {
+    fontSize: 13,
     fontWeight: "500",
     color: Colors.textSecondary,
   },
-  typeLabelActive: {
+  facilityLabelActive: {
     color: Colors.primary,
     fontWeight: "700",
   },

@@ -42,11 +42,11 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: "マップ",
+          title: "ホーム",
           tabBarIcon: ({ focused }) => (
             <TabIcon emoji="🗺️" focused={focused} />
           ),
-          headerTitle: "トイレマップ",
+          headerTitle: "トイレMAP",
         }}
       />
       <Tabs.Screen
@@ -70,13 +70,13 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="friends"
+        name="favorites"
         options={{
-          title: "フレンド",
+          title: "お気に入り",
           tabBarIcon: ({ focused }) => (
-            <TabIcon emoji="👥" focused={focused} />
+            <TabIcon emoji="♡" focused={focused} />
           ),
-          headerTitle: "フレンド",
+          headerTitle: "お気に入り",
         }}
       />
       <Tabs.Screen

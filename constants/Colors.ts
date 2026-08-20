@@ -1,34 +1,37 @@
 export const Colors = {
-  primary: "#0d9488",       // teal-600
-  primaryLight: "#14b8a6",  // teal-500
-  primaryDark: "#0f766e",   // teal-700
-  primaryBg: "#f0fdfa",     // teal-50
+  primary: "#2563eb", // blue-600
+  primaryLight: "#3b82f6", // blue-500
+  primaryDark: "#1d4ed8", // blue-700
+  primaryBg: "#eff6ff", // blue-50
 
-  secondary: "#3b82f6",     // blue-500
-  secondaryLight: "#60a5fa",// blue-400
-  secondaryDark: "#2563eb", // blue-600
+  accent: "#0d9488", // teal-600 (brand accent)
+  accentBg: "#f0fdfa", // teal-50
 
-  accent: "#f59e0b",        // amber-500
+  success: "#22c55e", // green-500
+  warning: "#f59e0b", // amber-500
+  error: "#ef4444", // red-500
 
-  success: "#22c55e",       // green-500
-  warning: "#f59e0b",       // amber-500
-  error: "#ef4444",         // red-500
+  markerAvailable: "#0d9488",
+  markerUnavailable: "#ef4444",
+  markerUnknown: "#9ca3af",
 
-  myMarker: "#0d9488",      // teal for own toilets
-  friendMarker: "#3b82f6",  // blue for friends' toilets
+  favorite: "#ef4444",
 
-  text: "#1f2937",          // gray-800
+  star: "#f59e0b",
+  starEmpty: "#e5e7eb",
+
+  text: "#1f2937", // gray-800
   textSecondary: "#6b7280", // gray-500
-  textLight: "#9ca3af",     // gray-400
+  textLight: "#9ca3af", // gray-400
   textWhite: "#ffffff",
 
-  background: "#f9fafb",    // gray-50
+  background: "#f9fafb", // gray-50
   surface: "#ffffff",
-  border: "#e5e7eb",        // gray-200
-  borderLight: "#f3f4f6",   // gray-100
+  border: "#e5e7eb", // gray-200
+  borderLight: "#f3f4f6", // gray-100
 
   tabBar: "#ffffff",
-  tabBarActive: "#0d9488",
+  tabBarActive: "#2563eb",
   tabBarInactive: "#9ca3af",
 };
 

@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useMemo } from "react";
 import {
   View,
   Text,
@@ -6,26 +6,34 @@ import {
   StyleSheet,
   FlatList,
   ActivityIndicator,
+  TouchableOpacity,
 } from "react-native";
-import { useAuth } from "@clerk/clerk-expo";
 import { useQuery } from "convex/react";
+import { useRouter } from "expo-router";
 import { api } from "../../convex/_generated/api";
 import { ToiletCard } from "../../components/ToiletCard";
+import { useLocation } from "../../hooks/useLocation";
+import { useFilters } from "../../hooks/useFilters";
+import { distanceMeters, formatDistance } from "../../lib/geo";
 import Colors from "../../constants/Colors";
 import { Toilet } from "../../types";
 
 export default function SearchScreen() {
-  const { userId } = useAuth();
+  const router = useRouter();
+  const { location } = useLocation();
+  const { filters, activeCount } = useFilters();
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedTerm, setDebouncedTerm] = useState("");
   const timerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const results = useQuery(
-    api.toilets.searchToilets,
-    userId && debouncedTerm.length >= 1
-      ? { clerkId: userId, searchTerm: debouncedTerm }
-      : "skip"
-  );
+  const results = useQuery(api.toilets.searchToilets, {
+    searchTerm: debouncedTerm || undefined,
+    feeMode: filters.feeMode,
+    hoursMode: filters.hoursMode,
+    facilities: filters.facilities,
+    insideTicketGate: filters.insideTicketGate,
+    hasParking: filters.hasParking,
+  });
 
   const handleSearch = useCallback((text: string) => {
     setSearchTerm(text);
@@ -35,7 +43,24 @@ export default function SearchScreen() {
     }, 400);
   }, []);
 
-  const isLoading = results === undefined && debouncedTerm.length > 0;
+  const sorted = useMemo(() => {
+    const list = (results ?? []) as Toilet[];
+    if (!location) return list;
+    return [...list].sort(
+      (a, b) =>
+        distanceMeters(location.coords.latitude, location.coords.longitude, a.latitude, a.longitude) -
+        distanceMeters(location.coords.latitude, location.coords.longitude, b.latitude, b.longitude)
+    );
+  }, [results, location]);
+
+  const distanceLabel = (t: Toilet) =>
+    location
+      ? formatDistance(
+          distanceMeters(location.coords.latitude, location.coords.longitude, t.latitude, t.longitude)
+        )
+      : undefined;
+
+  const isLoading = results === undefined;
 
   return (
     <View style={styles.container}>
@@ -50,42 +75,45 @@ export default function SearchScreen() {
           returnKeyType="search"
           clearButtonMode="while-editing"
         />
+        <TouchableOpacity
+          style={styles.filterBtn}
+          onPress={() => router.push("/filter")}
+        >
+          <Text style={styles.filterIcon}>⚙️</Text>
+          {activeCount > 0 && (
+            <View style={styles.filterBadge}>
+              <Text style={styles.filterBadgeText}>{activeCount}</Text>
+            </View>
+          )}
+        </TouchableOpacity>
       </View>
 
       {isLoading ? (
         <View style={styles.centered}>
           <ActivityIndicator color={Colors.primary} />
         </View>
-      ) : debouncedTerm.length === 0 ? (
-        <View style={styles.centered}>
-          <Text style={styles.emptyIcon}>🔍</Text>
-          <Text style={styles.emptyTitle}>トイレを検索</Text>
-          <Text style={styles.emptySubtitle}>
-            名前やメモで検索できます{"\n"}自分・フレンドのトイレが対象です
-          </Text>
-        </View>
-      ) : results && results.length === 0 ? (
+      ) : sorted.length === 0 ? (
         <View style={styles.centered}>
           <Text style={styles.emptyIcon}>😔</Text>
           <Text style={styles.emptyTitle}>見つかりませんでした</Text>
           <Text style={styles.emptySubtitle}>
-            別のキーワードで試してください
+            キーワードや絞り込み条件を変えてみてください
           </Text>
         </View>
       ) : (
         <FlatList
-          data={results as Toilet[]}
+          data={sorted}
           keyExtractor={(item) => item._id}
           renderItem={({ item }) => (
-            <ToiletCard toilet={item} isOwn={item.userId === userId} />
+            <ToiletCard
+              toilet={item}
+              distanceLabel={distanceLabel(item)}
+              onPress={() => router.push(`/toilet/${item._id}`)}
+            />
           )}
           contentContainerStyle={styles.list}
           ListHeaderComponent={
-            results ? (
-              <Text style={styles.resultCount}>
-                {results.length}件見つかりました
-              </Text>
-            ) : null
+            <Text style={styles.resultCount}>{sorted.length}件見つかりました</Text>
           }
         />
       )}
@@ -118,6 +146,34 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: Colors.text,
     paddingVertical: 12,
+  },
+  filterBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: Colors.primaryBg,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  filterIcon: {
+    fontSize: 15,
+  },
+  filterBadge: {
+    position: "absolute",
+    top: -2,
+    right: -2,
+    backgroundColor: Colors.primary,
+    borderRadius: 8,
+    minWidth: 16,
+    height: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 3,
+  },
+  filterBadgeText: {
+    color: "#fff",
+    fontSize: 9,
+    fontWeight: "700",
   },
   centered: {
     flex: 1,

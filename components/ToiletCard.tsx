@@ -1,26 +1,20 @@
 import React from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  Image,
-} from "react-native";
-import { Toilet } from "../types";
-import { ToiletTypeIcon } from "./ToiletTypeIcon";
-import Colors from "../constants/Colors";
+import { View, Text, StyleSheet, TouchableOpacity, Image } from "react-native";
 import { useQuery } from "convex/react";
 import { api } from "../convex/_generated/api";
 import { Id } from "../convex/_generated/dataModel";
+import { Toilet } from "../types";
+import { FEE_LABELS, HOURS_LABELS } from "../constants/Facilities";
+import { formatRelativeTime } from "../lib/geo";
+import Colors from "../constants/Colors";
 
 interface Props {
   toilet: Toilet;
-  isOwn?: boolean;
   onPress?: () => void;
-  ownerName?: string;
+  distanceLabel?: string;
 }
 
-export function ToiletCard({ toilet, isOwn = true, onPress, ownerName }: Props) {
+export function ToiletCard({ toilet, onPress, distanceLabel }: Props) {
   const imageUrl = useQuery(
     api.storage.getImageUrl,
     toilet.imageStorageId
@@ -28,11 +22,10 @@ export function ToiletCard({ toilet, isOwn = true, onPress, ownerName }: Props) 
       : "skip"
   );
 
-  const formattedDate = new Date(toilet.createdAt).toLocaleDateString("ja-JP", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
+  const avgCleanliness =
+    toilet.cleanlinessCount > 0
+      ? toilet.cleanlinessSum / toilet.cleanlinessCount
+      : null;
 
   return (
     <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.8}>
@@ -41,32 +34,41 @@ export function ToiletCard({ toilet, isOwn = true, onPress, ownerName }: Props) 
           <Image source={{ uri: imageUrl }} style={styles.image} />
         ) : (
           <View style={styles.imagePlaceholder}>
-            <Text style={styles.imagePlaceholderText}>📷</Text>
+            <Text style={styles.imagePlaceholderText}>🚽</Text>
           </View>
         )}
         <View style={styles.info}>
           <Text style={styles.name} numberOfLines={1}>
             {toilet.name}
           </Text>
-          <ToiletTypeIcon type={toilet.type} size="sm" />
-          {toilet.notes ? (
-            <Text style={styles.notes} numberOfLines={2}>
-              {toilet.notes}
+          <View style={styles.metaRow}>
+            {distanceLabel ? (
+              <Text style={styles.meta}>📍 {distanceLabel}</Text>
+            ) : null}
+            <Text style={styles.meta}>
+              {toilet.hoursType === "24h" ? "🕐 24時間" : HOURS_LABELS[toilet.hoursType]}
+            </Text>
+            <Text
+              style={[
+                styles.feeBadge,
+                toilet.fee === "free" && styles.feeBadgeFree,
+              ]}
+            >
+              {FEE_LABELS[toilet.fee]}
+            </Text>
+          </View>
+          {avgCleanliness !== null ? (
+            <Text style={styles.rating}>
+              ⭐ {avgCleanliness.toFixed(1)}（{toilet.cleanlinessCount}件）
             </Text>
           ) : null}
           <View style={styles.footer}>
-            <Text style={styles.date}>{formattedDate}</Text>
-            {!isOwn && ownerName ? (
-              <Text style={styles.owner}>👤 {ownerName}</Text>
-            ) : null}
-            {isOwn ? (
-              <View style={styles.ownBadge}>
-                <Text style={styles.ownBadgeText}>自分</Text>
-              </View>
+            {toilet.lastConfirmedAt ? (
+              <Text style={styles.confirmed}>
+                最終確認 {formatRelativeTime(toilet.lastConfirmedAt)}
+              </Text>
             ) : (
-              <View style={styles.friendBadge}>
-                <Text style={styles.friendBadgeText}>フレンド</Text>
-              </View>
+              <Text style={styles.confirmedNone}>未確認</Text>
             )}
           </View>
         </View>
@@ -118,46 +120,45 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: Colors.text,
   },
-  notes: {
-    fontSize: 13,
+  metaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flexWrap: "wrap",
+  },
+  meta: {
+    fontSize: 12,
     color: Colors.textSecondary,
-    lineHeight: 18,
+  },
+  feeBadge: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: Colors.textSecondary,
+    backgroundColor: Colors.borderLight,
+    borderRadius: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+  },
+  feeBadgeFree: {
+    color: Colors.accent,
+    backgroundColor: "#f0fdfa",
+  },
+  rating: {
+    fontSize: 12,
+    color: Colors.textSecondary,
   },
   footer: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
     marginTop: 2,
   },
-  date: {
+  confirmed: {
     fontSize: 11,
     color: Colors.textLight,
-    flex: 1,
   },
-  owner: {
+  confirmedNone: {
     fontSize: 11,
-    color: Colors.textSecondary,
-  },
-  ownBadge: {
-    backgroundColor: Colors.primaryBg,
-    borderRadius: 8,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-  },
-  ownBadgeText: {
-    fontSize: 10,
-    color: Colors.primary,
-    fontWeight: "600",
-  },
-  friendBadge: {
-    backgroundColor: "#eff6ff",
-    borderRadius: 8,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-  },
-  friendBadgeText: {
-    fontSize: 10,
-    color: Colors.secondary,
-    fontWeight: "600",
+    color: Colors.textLight,
+    fontStyle: "italic",
   },
 });

@@ -2,12 +2,13 @@ import { useEffect } from "react";
 import { ClerkProvider, useAuth } from "@clerk/clerk-expo";
 import { ConvexProviderWithClerk } from "convex/react-clerk";
 import { ConvexReactClient } from "convex/react";
-import { Slot, useRouter, useSegments } from "expo-router";
+import { Stack, useRouter, useSegments } from "expo-router";
 import * as SecureStore from "expo-secure-store";
 import { PostHogProvider } from "posthog-react-native";
 import { StatusBar } from "expo-status-bar";
 import { View, ActivityIndicator, StyleSheet } from "react-native";
 import Colors from "../constants/Colors";
+import { FilterProvider } from "../hooks/useFilters";
 
 const convex = new ConvexReactClient(
   process.env.EXPO_PUBLIC_CONVEX_URL as string
@@ -55,7 +56,21 @@ function InitialLayout() {
     );
   }
 
-  return <Slot />;
+  return (
+    <Stack
+      screenOptions={{
+        headerStyle: { backgroundColor: Colors.surface },
+        headerTintColor: Colors.text,
+        headerTitleStyle: { fontWeight: "700", fontSize: 17 },
+        headerShadowVisible: true,
+        contentStyle: { backgroundColor: Colors.background },
+      }}
+    >
+      <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+      <Stack.Screen name="filter" options={{ presentation: "modal", title: "絞り込み検索" }} />
+    </Stack>
+  );
 }
 
 export default function RootLayout() {
@@ -72,7 +87,9 @@ export default function RootLayout() {
           }}
         >
           <StatusBar style="auto" />
-          <InitialLayout />
+          <FilterProvider>
+            <InitialLayout />
+          </FilterProvider>
         </PostHogProvider>
       </ConvexProviderWithClerk>
     </ClerkProvider>

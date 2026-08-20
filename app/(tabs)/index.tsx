@@ -1,49 +1,60 @@
-import React, { useRef, useState, useEffect } from "react";
+import React, { useRef, useState, useEffect, useMemo } from "react";
 import {
   View,
   StyleSheet,
   TouchableOpacity,
   Text,
+  TextInput,
   ActivityIndicator,
-  Alert,
 } from "react-native";
 import MapView from "react-native-maps";
-import { useAuth } from "@clerk/clerk-expo";
 import { useQuery } from "convex/react";
 import { usePostHog } from "posthog-react-native";
+import { useRouter } from "expo-router";
 import { api } from "../../convex/_generated/api";
 import { ToiletMarker } from "../../components/ToiletMarker";
 import { useLocation } from "../../hooks/useLocation";
+import { useFilters } from "../../hooks/useFilters";
+import { distanceMeters, formatDistance, formatRelativeTime } from "../../lib/geo";
+import { FEE_LABELS, HOURS_LABELS } from "../../constants/Facilities";
 import Colors from "../../constants/Colors";
 import { Toilet } from "../../types";
 
-type FilterMode = "all" | "mine" | "friends";
-
 export default function MapScreen() {
-  const { userId } = useAuth();
   const posthog = usePostHog();
+  const router = useRouter();
   const mapRef = useRef<MapView>(null);
-  const [filter, setFilter] = useState<FilterMode>("all");
+  const { filters, activeCount } = useFilters();
+  const [searchTerm, setSearchTerm] = useState("");
+  const [selected, setSelected] = useState<Toilet | null>(null);
 
   const { region, setRegion, location, loading, getCurrentLocation } =
     useLocation();
 
-  const visibleData = useQuery(
-    api.toilets.getAllVisibleToilets,
-    userId ? { clerkId: userId } : "skip"
-  );
+  const toilets = useQuery(api.toilets.searchToilets, {
+    searchTerm: searchTerm || undefined,
+    feeMode: filters.feeMode,
+    hoursMode: filters.hoursMode,
+    facilities: filters.facilities,
+    insideTicketGate: filters.insideTicketGate,
+    hasParking: filters.hasParking,
+  });
 
   useEffect(() => {
     posthog?.capture("map_viewed");
   }, []);
 
-  const myToilets = visibleData?.myToilets ?? [];
-  const friendsToilets = visibleData?.friendsToilets ?? [];
+  const list = (toilets ?? []) as Toilet[];
 
-  const displayedMyToilets =
-    filter === "friends" ? [] : myToilets;
-  const displayedFriendsToilets =
-    filter === "mine" ? [] : friendsToilets;
+  const selectedDistance = useMemo(() => {
+    if (!selected || !location) return null;
+    return distanceMeters(
+      location.coords.latitude,
+      location.coords.longitude,
+      selected.latitude,
+      selected.longitude
+    );
+  }, [selected, location]);
 
   const handleLocateMe = async () => {
     const loc = await getCurrentLocation();
@@ -61,7 +72,16 @@ export default function MapScreen() {
   };
 
   const handleMarkerPress = (toilet: Toilet) => {
-    // Could navigate to detail screen in future
+    setSelected(toilet);
+    mapRef.current?.animateToRegion(
+      {
+        latitude: toilet.latitude,
+        longitude: toilet.longitude,
+        latitudeDelta: 0.006,
+        longitudeDelta: 0.006,
+      },
+      400
+    );
   };
 
   return (
@@ -73,60 +93,49 @@ export default function MapScreen() {
         onRegionChangeComplete={setRegion}
         showsUserLocation
         showsMyLocationButton={false}
+        onPress={() => setSelected(null)}
       >
-        {displayedMyToilets.map((toilet) => (
+        {list.map((toilet) => (
           <ToiletMarker
             key={toilet._id}
-            toilet={toilet as Toilet}
-            isOwn={true}
-            onPress={handleMarkerPress}
-          />
-        ))}
-        {displayedFriendsToilets.map((toilet) => (
-          <ToiletMarker
-            key={toilet._id}
-            toilet={toilet as Toilet}
-            isOwn={false}
+            toilet={toilet}
             onPress={handleMarkerPress}
           />
         ))}
       </MapView>
 
-      {/* Filter tabs */}
-      <View style={styles.filterContainer}>
-        {(["all", "mine", "friends"] as FilterMode[]).map((f) => (
-          <TouchableOpacity
-            key={f}
-            style={[styles.filterBtn, filter === f && styles.filterBtnActive]}
-            onPress={() => setFilter(f)}
-          >
-            <Text
-              style={[
-                styles.filterText,
-                filter === f && styles.filterTextActive,
-              ]}
-            >
-              {f === "all" ? "すべて" : f === "mine" ? "自分" : "フレンド"}
-            </Text>
-          </TouchableOpacity>
-        ))}
+      {/* Search bar */}
+      <View style={styles.searchBar}>
+        <Text style={styles.searchIcon}>🔍</Text>
+        <TextInput
+          style={styles.searchInput}
+          value={searchTerm}
+          onChangeText={setSearchTerm}
+          placeholder="このエリアを検索"
+          placeholderTextColor={Colors.textLight}
+          returnKeyType="search"
+        />
+        <TouchableOpacity
+          style={styles.filterBtn}
+          onPress={() => router.push("/filter")}
+        >
+          <Text style={styles.filterIcon}>⚙️</Text>
+          {activeCount > 0 && (
+            <View style={styles.filterBadge}>
+              <Text style={styles.filterBadgeText}>{activeCount}</Text>
+            </View>
+          )}
+        </TouchableOpacity>
       </View>
 
-      {/* Legend */}
-      <View style={styles.legend}>
-        <View style={styles.legendItem}>
-          <View style={[styles.legendDot, { backgroundColor: Colors.myMarker }]} />
-          <Text style={styles.legendText}>自分</Text>
-        </View>
-        <View style={styles.legendItem}>
-          <View style={[styles.legendDot, { backgroundColor: Colors.friendMarker }]} />
-          <Text style={styles.legendText}>フレンド</Text>
-        </View>
+      {/* Toilet count badge */}
+      <View style={styles.countBadge}>
+        <Text style={styles.countText}>🚽 {list.length}件</Text>
       </View>
 
       {/* Current location button */}
       <TouchableOpacity
-        style={styles.locateButton}
+        style={[styles.locateButton, selected && styles.locateButtonRaised]}
         onPress={handleLocateMe}
         disabled={loading}
       >
@@ -137,12 +146,57 @@ export default function MapScreen() {
         )}
       </TouchableOpacity>
 
-      {/* Toilet count badge */}
-      <View style={styles.countBadge}>
-        <Text style={styles.countText}>
-          🚽 {displayedMyToilets.length + displayedFriendsToilets.length}件
-        </Text>
-      </View>
+      {/* Selected toilet preview card */}
+      {selected && (
+        <TouchableOpacity
+          style={styles.previewCard}
+          activeOpacity={0.85}
+          onPress={() => router.push(`/toilet/${selected._id}`)}
+        >
+          <View style={styles.previewHeader}>
+            <Text style={styles.previewName} numberOfLines={1}>
+              {selected.name}
+            </Text>
+            <TouchableOpacity onPress={() => setSelected(null)}>
+              <Text style={styles.previewClose}>×</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={styles.previewMetaRow}>
+            {selectedDistance !== null && (
+              <Text style={styles.previewMeta}>
+                徒歩{Math.max(1, Math.round(selectedDistance / 80))}分 (
+                {formatDistance(selectedDistance)})
+              </Text>
+            )}
+            <Text style={styles.previewMeta}>
+              {selected.hoursType === "24h" ? "24時間利用可" : HOURS_LABELS[selected.hoursType]}
+            </Text>
+            <Text style={styles.previewMeta}>{FEE_LABELS[selected.fee]}</Text>
+          </View>
+          {selected.lastConfirmedAt ? (
+            <Text style={styles.previewConfirmed}>
+              {selected.lastConfirmedStatus === "available" ? "✅ 利用可能" : selected.lastConfirmedStatus === "unavailable" ? "⚠️ 利用不可の報告あり" : "情報あり"}
+              （{formatRelativeTime(selected.lastConfirmedAt)}に確認）
+            </Text>
+          ) : (
+            <Text style={styles.previewConfirmedNone}>まだ利用状況の報告がありません</Text>
+          )}
+          <View style={styles.previewActions}>
+            <TouchableOpacity
+              style={styles.previewSecondaryBtn}
+              onPress={() => router.push(`/toilet/${selected._id}`)}
+            >
+              <Text style={styles.previewSecondaryBtnText}>詳細を見る</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.previewPrimaryBtn}
+              onPress={() => router.push(`/toilet/${selected._id}/route`)}
+            >
+              <Text style={styles.previewPrimaryBtnText}>ここへ行く</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
@@ -154,64 +208,79 @@ const styles = StyleSheet.create({
   map: {
     flex: 1,
   },
-  filterContainer: {
+  searchBar: {
     position: "absolute",
     top: 12,
-    alignSelf: "center",
+    left: 16,
+    right: 16,
     flexDirection: "row",
+    alignItems: "center",
     backgroundColor: Colors.surface,
     borderRadius: 20,
-    padding: 4,
+    paddingLeft: 14,
+    paddingRight: 6,
+    height: 46,
+    gap: 8,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.15,
     shadowRadius: 6,
     elevation: 5,
   },
+  searchIcon: {
+    fontSize: 16,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 14,
+    color: Colors.text,
+  },
   filterBtn: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 16,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: Colors.primaryBg,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  filterBtnActive: {
-    backgroundColor: Colors.primary,
+  filterIcon: {
+    fontSize: 16,
   },
-  filterText: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: Colors.textSecondary,
-  },
-  filterTextActive: {
-    color: "#fff",
-  },
-  legend: {
+  filterBadge: {
     position: "absolute",
-    bottom: 100,
-    left: 16,
+    top: -2,
+    right: -2,
+    backgroundColor: Colors.primary,
+    borderRadius: 8,
+    minWidth: 16,
+    height: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 3,
+  },
+  filterBadgeText: {
+    color: "#fff",
+    fontSize: 9,
+    fontWeight: "700",
+  },
+  countBadge: {
+    position: "absolute",
+    top: 66,
+    alignSelf: "center",
     backgroundColor: Colors.surface,
     borderRadius: 12,
-    padding: 10,
-    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
-    shadowRadius: 4,
+    shadowRadius: 3,
     elevation: 3,
   },
-  legendItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  legendDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-  },
-  legendText: {
-    fontSize: 12,
+  countText: {
+    fontSize: 13,
+    fontWeight: "600",
     color: Colors.text,
-    fontWeight: "500",
   },
   locateButton: {
     position: "absolute",
@@ -229,26 +298,88 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     elevation: 5,
   },
+  locateButtonRaised: {
+    bottom: 232,
+  },
   locateIcon: {
     fontSize: 24,
   },
-  countBadge: {
+  previewCard: {
     position: "absolute",
-    top: 64,
-    alignSelf: "center",
+    bottom: 16,
+    left: 16,
+    right: 16,
     backgroundColor: Colors.surface,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    borderRadius: 18,
+    padding: 16,
+    gap: 8,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    elevation: 8,
   },
-  countText: {
-    fontSize: 13,
-    fontWeight: "600",
+  previewHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  previewName: {
+    fontSize: 17,
+    fontWeight: "800",
     color: Colors.text,
+    flex: 1,
+  },
+  previewClose: {
+    fontSize: 22,
+    color: Colors.textLight,
+    paddingHorizontal: 4,
+  },
+  previewMetaRow: {
+    flexDirection: "row",
+    gap: 12,
+    flexWrap: "wrap",
+  },
+  previewMeta: {
+    fontSize: 13,
+    color: Colors.textSecondary,
+  },
+  previewConfirmed: {
+    fontSize: 12,
+    color: Colors.accent,
+    fontWeight: "600",
+  },
+  previewConfirmedNone: {
+    fontSize: 12,
+    color: Colors.textLight,
+  },
+  previewActions: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 4,
+  },
+  previewSecondaryBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: "center",
+    backgroundColor: Colors.borderLight,
+  },
+  previewSecondaryBtnText: {
+    color: Colors.text,
+    fontWeight: "700",
+    fontSize: 14,
+  },
+  previewPrimaryBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: "center",
+    backgroundColor: Colors.primary,
+  },
+  previewPrimaryBtnText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 14,
   },
 });

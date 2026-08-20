@@ -1,31 +1,50 @@
 import React, { useEffect } from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  Image,
-  FlatList,
-  Alert,
-  ActivityIndicator,
-} from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, Image, Alert, ScrollView } from "react-native";
 import { useAuth, useUser } from "@clerk/clerk-expo";
 import { useQuery, useMutation } from "convex/react";
+import { useRouter } from "expo-router";
 import { api } from "../../convex/_generated/api";
-import { ToiletCard } from "../../components/ToiletCard";
 import Colors from "../../constants/Colors";
-import { Toilet } from "../../types";
+
+function MenuItem({
+  icon,
+  label,
+  count,
+  onPress,
+}: {
+  icon: string;
+  label: string;
+  count?: number;
+  onPress: () => void;
+}) {
+  return (
+    <TouchableOpacity style={styles.menuItem} onPress={onPress} activeOpacity={0.7}>
+      <Text style={styles.menuIcon}>{icon}</Text>
+      <Text style={styles.menuLabel}>{label}</Text>
+      {count !== undefined && (
+        <View style={styles.menuCount}>
+          <Text style={styles.menuCountText}>{count}</Text>
+        </View>
+      )}
+      <Text style={styles.menuChevron}>›</Text>
+    </TouchableOpacity>
+  );
+}
 
 export default function ProfileScreen() {
   const { signOut, userId } = useAuth();
   const { user } = useUser();
+  const router = useRouter();
 
   const upsertUser = useMutation(api.users.upsertUser);
   const myToilets = useQuery(
     api.toilets.getMyToilets,
     userId ? { clerkId: userId } : "skip"
   );
-  const deleteToilet = useMutation(api.toilets.deleteToilet);
+  const favorites = useQuery(
+    api.favorites.getFavoriteToilets,
+    userId ? { clerkId: userId } : "skip"
+  );
 
   useEffect(() => {
     if (user && userId) {
@@ -41,106 +60,82 @@ export default function ProfileScreen() {
   const handleSignOut = () => {
     Alert.alert("ログアウト", "ログアウトしますか？", [
       { text: "キャンセル", style: "cancel" },
-      {
-        text: "ログアウト",
-        style: "destructive",
-        onPress: () => signOut(),
-      },
+      { text: "ログアウト", style: "destructive", onPress: () => signOut() },
     ]);
   };
 
-  const handleDeleteToilet = (toiletId: string, name: string) => {
-    if (!userId) return;
-    Alert.alert("削除確認", `「${name}」を削除しますか？`, [
-      { text: "キャンセル", style: "cancel" },
-      {
-        text: "削除",
-        style: "destructive",
-        onPress: async () => {
-          try {
-            await deleteToilet({
-              clerkId: userId,
-              toiletId: toiletId as any,
-            });
-          } catch (err: any) {
-            Alert.alert("エラー", err.message || "削除に失敗しました");
-          }
-        },
-      },
-    ]);
-  };
-
-  const displayName =
-    user?.fullName || user?.username || "ユーザー";
+  const displayName = user?.fullName || user?.username || "ユーザー";
   const email = user?.primaryEmailAddress?.emailAddress || "";
 
   return (
-    <FlatList
-      style={styles.container}
-      data={myToilets as Toilet[] | undefined}
-      keyExtractor={(item) => item._id}
-      renderItem={({ item }) => (
-        <View style={styles.toiletItemWrapper}>
-          <ToiletCard toilet={item} isOwn />
-          <TouchableOpacity
-            style={styles.deleteBtn}
-            onPress={() => handleDeleteToilet(item._id, item.name)}
-          >
-            <Text style={styles.deleteBtnText}>🗑️ 削除</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-      ListHeaderComponent={
-        <>
-          {/* Profile card */}
-          <View style={styles.profileCard}>
-            {user?.imageUrl ? (
-              <Image source={{ uri: user.imageUrl }} style={styles.avatar} />
-            ) : (
-              <View style={styles.avatarPlaceholder}>
-                <Text style={styles.avatarInitials}>
-                  {displayName[0]?.toUpperCase() || "U"}
-                </Text>
-              </View>
-            )}
-            <Text style={styles.name}>{displayName}</Text>
-            <Text style={styles.email}>{email}</Text>
-
-            <View style={styles.statsRow}>
-              <View style={styles.stat}>
-                <Text style={styles.statValue}>{myToilets?.length ?? 0}</Text>
-                <Text style={styles.statLabel}>登録数</Text>
-              </View>
-            </View>
+    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      <View style={styles.profileCard}>
+        {user?.imageUrl ? (
+          <Image source={{ uri: user.imageUrl }} style={styles.avatar} />
+        ) : (
+          <View style={styles.avatarPlaceholder}>
+            <Text style={styles.avatarInitials}>
+              {displayName[0]?.toUpperCase() || "U"}
+            </Text>
           </View>
+        )}
+        <Text style={styles.name}>{displayName}</Text>
+        {email ? <Text style={styles.email}>{email}</Text> : null}
 
-          {/* My toilets section header */}
-          <Text style={styles.sectionHeader}>🚽 登録したトイレ</Text>
+        <View style={styles.statsRow}>
+          <View style={styles.stat}>
+            <Text style={styles.statValue}>{myToilets?.length ?? 0}</Text>
+            <Text style={styles.statLabel}>登録数</Text>
+          </View>
+          <View style={styles.stat}>
+            <Text style={styles.statValue}>{favorites?.length ?? 0}</Text>
+            <Text style={styles.statLabel}>お気に入り</Text>
+          </View>
+        </View>
+      </View>
 
-          {myToilets === undefined && (
-            <View style={styles.centered}>
-              <ActivityIndicator color={Colors.primary} />
-            </View>
-          )}
+      <View style={styles.menuSection}>
+        <MenuItem
+          icon="♡"
+          label="お気に入り"
+          count={favorites?.length}
+          onPress={() => router.push("/(tabs)/favorites")}
+        />
+        <MenuItem
+          icon="🚽"
+          label="自分が登録したトイレ"
+          count={myToilets?.length}
+          onPress={() => router.push("/my-toilets")}
+        />
+        <MenuItem
+          icon="📝"
+          label="利用履歴・報告履歴"
+          onPress={() => router.push("/my-reports")}
+        />
+      </View>
 
-          {myToilets?.length === 0 && (
-            <View style={styles.emptySection}>
-              <Text style={styles.emptyIcon}>🚽</Text>
-              <Text style={styles.emptyTitle}>まだ登録がありません</Text>
-              <Text style={styles.emptySubtitle}>
-                「追加」タブからトイレを登録しましょう
-              </Text>
-            </View>
-          )}
-        </>
-      }
-      ListFooterComponent={
-        <TouchableOpacity style={styles.signOutBtn} onPress={handleSignOut}>
-          <Text style={styles.signOutBtnText}>ログアウト</Text>
-        </TouchableOpacity>
-      }
-      contentContainerStyle={styles.content}
-    />
+      <View style={styles.menuSection}>
+        <MenuItem
+          icon="🔔"
+          label="通知"
+          onPress={() => Alert.alert("通知", "通知設定は準備中です")}
+        />
+        <MenuItem
+          icon="⚙️"
+          label="設定"
+          onPress={() => Alert.alert("設定", "設定画面は準備中です")}
+        />
+        <MenuItem
+          icon="❓"
+          label="ヘルプ・お問い合わせ"
+          onPress={() => router.push("/faq")}
+        />
+      </View>
+
+      <TouchableOpacity style={styles.signOutBtn} onPress={handleSignOut}>
+        <Text style={styles.signOutBtnText}>ログアウト</Text>
+      </TouchableOpacity>
+    </ScrollView>
   );
 }
 
@@ -213,56 +208,51 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     marginTop: 2,
   },
-  sectionHeader: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: Colors.text,
+  menuSection: {
+    backgroundColor: Colors.surface,
     marginHorizontal: 16,
-    marginTop: 24,
-    marginBottom: 8,
+    marginTop: 16,
+    borderRadius: 16,
+    overflow: "hidden",
   },
-  centered: {
-    paddingVertical: 32,
+  menuItem: {
+    flexDirection: "row",
     alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    gap: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.borderLight,
   },
-  emptySection: {
-    alignItems: "center",
-    paddingVertical: 40,
-    gap: 8,
-  },
-  emptyIcon: {
-    fontSize: 48,
-  },
-  emptyTitle: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: Colors.text,
-  },
-  emptySubtitle: {
-    fontSize: 13,
-    color: Colors.textSecondary,
+  menuIcon: {
+    fontSize: 18,
+    width: 24,
     textAlign: "center",
   },
-  toiletItemWrapper: {
-    position: "relative",
+  menuLabel: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: "500",
+    color: Colors.text,
   },
-  deleteBtn: {
-    position: "absolute",
-    right: 28,
-    top: 14,
-    backgroundColor: "#fee2e2",
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+  menuCount: {
+    backgroundColor: Colors.borderLight,
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
   },
-  deleteBtnText: {
-    color: Colors.error,
+  menuCountText: {
     fontSize: 12,
     fontWeight: "600",
+    color: Colors.textSecondary,
+  },
+  menuChevron: {
+    fontSize: 20,
+    color: Colors.textLight,
   },
   signOutBtn: {
     marginHorizontal: 16,
-    marginTop: 32,
+    marginTop: 24,
     backgroundColor: "#fee2e2",
     borderRadius: 14,
     paddingVertical: 16,
